@@ -4,6 +4,27 @@
 
 Jules Local is a command-line tool that aims to simulate some of the core concepts of the experimental Google coding agent, Jules (as described at [jules.google/docs](https://jules.google/docs)), but for execution on your local Linux machine. It uses Large Language Models (LLMs) like Google Gemini for planning and can interact with your codebase within a containerized environment using a defined set of tools.
 
+## How Jules Local Compares to Google Jules
+
+This table provides a high-level comparison between the original Google Jules (a cloud-based experimental coding agent) and this Jules Local project, which aims to simulate some of its core concepts for local execution and experimentation.
+
+| Feature                    | Google Jules (Cloud)                                  | Jules Local (This Project)                                                                 |
+|----------------------------|-------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| **Core Functionality**     | AI coding agent for bug fixing, feature dev, docs.    | Local simulation of an AI coding agent; framework for LLM-driven, tool-based code tasks.    |
+| **Primary Interaction**    | Natural language prompt via web UI.                   | Natural language prompt via CLI command (`jules-local task <repo> "<prompt>"`).              |
+| **Code Access**            | Connects to GitHub repositories.                      | Clones local Git repositories or remote Git URLs into a temporary workspace.               |
+| **Workspace Management**   | Manages code clones in its backend.                 | Creates a local temporary directory (`jules_workspaces/task_<id>/code`).                   |
+| **Branching Strategy**     | Works on specified or new branches in GitHub.         | Creates a new local task-specific branch (`jules_task/<task_id>`) in the cloned workspace. |
+| **Planning Mechanism**     | Sophisticated AI/LLM generates a multi-step plan.     | LLM (e.g., Gemini Pro) generates a multi-step plan based on prompt and available tools.    |
+| **Execution Environment**  | Runs tasks in a Virtual Machine in the cloud.       | Runs tasks in a Docker/Podman container on the local Linux machine.                        |
+| **Environment Setup**      | Supports environment setup scripts.                   | Supports a `.jules/setup.sh` script in the user's repo for container setup.                |
+| **Tool Usage**             | Uses a rich set of internal tools.                    | Uses a defined set of Python tools (`tools.py`) that operate within the container.         |
+| **User Review/Approval**   | User reviews and approves the generated plan.         | User reviews and approves the LLM-generated plan via CLI input (`yes/no`).                 |
+| **Output/Results**         | Proposes changes (e.g., Pull Requests), logs actions. | Prints tool outputs, logs actions to console, displays a `git diff` of changes.            |
+| **Underlying Intelligence**| Advanced Google AI models.                            | Configurable LLMs (e.g., Gemini Pro for planning, Gemini Flash for optional sub-tasks).    |
+| **Asynchronous Work**      | Works asynchronously; user can leave and be notified. | Currently synchronous; CLI command waits for completion.                                   |
+| **Notifications**          | Browser/email notifications.                          | No built-in notification system.                                                           |
+
 ## LLM Configuration
 
 To enable features that use Large Language Models (LLMs) like Google Gemini, you need to configure an API key and optionally specify model names.
@@ -125,5 +146,3 @@ Jules Local continues to evolve. Current development focuses on:
 *   Improving mechanisms for the agent to analyze tool outputs and make dynamic adjustments to plans (e.g., conditional execution, loops, error recovery).
 *   Enhancing user interaction for plan refinement and feedback.
 *   Exploring state management for more complex, multi-step tasks that might require context persistence.
-
-[end of README.md]
