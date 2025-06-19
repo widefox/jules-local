@@ -54,6 +54,44 @@ In this phase, a basic set of tools has been implemented that operate within the
 
 The current task orchestration performs a `list_files` at the root of your project within the container as a demonstration.
 
+## Planning and Execution (Phase 2 Initial)
+
+Jules Local now incorporates a basic planning and execution mechanism. When you provide a task prompt, the agent attempts to generate a plan, which is a sequence of tool calls. You will be asked to approve this plan before any actions are taken within the containerized workspace.
+
+### Simple Prompt Commands
+
+In this initial phase, the planner understands a few simple, keyword-based commands at the beginning of your prompt:
+
+*   **`LIST_FILES [path]`**: Generates a plan to list files and directories.
+    *   Example: `LIST_FILES .`
+    *   Example: `LIST_FILES ./my_subdir`
+*   **`READ_FILE <filepath>`**: Generates a plan to read the content of the specified file.
+    *   Example: `READ_FILE my_project/main.py`
+*   **`CREATE_FILE <filepath> "<content>"`**: Generates a plan to create (or overwrite) a file with the given content.
+    *   Example: `CREATE_FILE new_notes.txt "This is a new note."`
+    *   *(Note: Ensure content with spaces is quoted)*
+*   **`RUN_SHELL "<command_string>"`**: Generates a plan to execute the given shell command.
+    *   Example: `RUN_SHELL "ls -la /workspace/data"`
+    *   Example: `RUN_SHELL "python --version"`
+    *   *(Note: Ensure the command string is quoted if it contains spaces or special characters)*
+
+If the prompt does not match one of these commands, or if it's empty, a default plan will be generated (e.g., listing files in the current directory and attempting to read `README.md`).
+If a recognized command has incorrect arguments (e.g., `CREATE_FILE` missing content), you'll receive a message instead of a plan for approval.
+
+### Plan Approval
+
+Before any tools are executed, the generated plan will be displayed, and you will be prompted to approve it by typing `yes` or `no`. This gives you control over what actions Jules Local will perform.
+
+Example of a plan display:
+```
+Please review and approve the following plan:
+Proposed Plan:
+  Step 1: Tool: list_files, Arguments: {'path': '.'}
+  Step 2: Tool: read_file, Arguments: {'file_path': 'README.md'}
+
+Approve plan? (yes/no):
+```
+
 ## Basic Usage (Phase 1)
 
 To initiate a task:
@@ -75,8 +113,11 @@ This will (in future steps):
 5. Clean up the workspace and container.
 
 ## Future Phases
-
-The current version of Jules Local provides the foundational framework for task execution. Key features like AI-driven planning (interpreting your prompt to generate a sequence of tool actions) and more sophisticated interaction and feedback loops are planned for future development phases.
+The current simple planner is rule-based. Future development will focus on:
+*   More sophisticated prompt understanding and plan generation, potentially leveraging AI/LLM capabilities if feasible in a local context or by defining more complex task decomposition strategies.
+*   Support for a wider range of tools and more complex interactions.
+*   Mechanisms for the agent to react to tool outputs and dynamically adjust plans.
+*   Enhanced error handling and recovery.
 
 ## Current Status (End of Plan Step 1 for Phase 1)
 
