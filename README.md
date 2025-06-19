@@ -22,13 +22,13 @@ Replace `YOUR_API_KEY_HERE` with your actual Gemini API key. You can obtain an A
 
 You can also specify which Gemini models to use for different purposes by setting these environment variables:
 
-*   `MAIN_LLM_MODEL_NAME`: Used for the primary task of understanding your prompt and generating the overall plan. Defaults to a recent Gemini Pro model (e.g., `gemini-1.5-pro-latest`).
-*   `LITE_LLM_MODEL_NAME`: Used by specific tools (like `generate_text_via_llm`) for more focused, smaller generation tasks. Defaults to a recent Gemini Flash model (e.g., `gemini-1.5-flash-latest`).
+*   `MAIN_LLM_MODEL_NAME`: Used for the primary task of understanding your prompt and generating the overall plan. Defaults to a recent Gemini Pro model (e.g., `gemini-2.5-pro`).
+*   `LITE_LLM_MODEL_NAME`: Used by specific tools (like `generate_text_via_llm`) for more focused, smaller generation tasks. Defaults to a recent Gemini Flash model (e.g., `gemini-2.5-flash-lite-preview-06-17`).
 
 Example:
 ```bash
-export MAIN_LLM_MODEL_NAME="gemini-1.5-pro-latest"
-export LITE_LLM_MODEL_NAME="gemini-1.5-flash-latest"
+export MAIN_LLM_MODEL_NAME="gemini-2.5-pro"
+export LITE_LLM_MODEL_NAME="gemini-2.5-flash-lite-preview-06-17"
 ```
 
 If these are not set, the application will use predefined default model names. Please refer to the [Google Gemini documentation](https://ai.google.dev/gemini-api/docs/models) for the latest available model names.
@@ -125,3 +125,5 @@ Jules Local continues to evolve. Current development focuses on:
 *   Improving mechanisms for the agent to analyze tool outputs and make dynamic adjustments to plans (e.g., conditional execution, loops, error recovery).
 *   Enhancing user interaction for plan refinement and feedback.
 *   Exploring state management for more complex, multi-step tasks that might require context persistence.
+
+[end of README.md]

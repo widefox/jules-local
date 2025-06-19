@@ -1,11 +1,49 @@
 import os
 import requests # Using requests library for HTTP calls.
+import re # Import re for the replacement logic
 
 # --- Configuration ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+# Updated default model names
+new_main_model = "gemini-2.5-pro"
+new_lite_model = "gemini-2.5-flash-lite-preview-06-17"
+
+# Original lines for context (will be replaced by re.sub logic from prompt if patterns match)
+MAIN_LLM_MODEL_NAME = os.environ.get("MAIN_LLM_MODEL_NAME", "gemini-1.5-pro-latest")
+LITE_LLM_MODEL_NAME = os.environ.get("LITE_LLM_MODEL_NAME", "gemini-1.5-flash-latest")
+
+# Apply replacements using regex as per the subtask's Python script logic
+# This is a bit meta to do it this way, usually the Python script itself would be executed.
+# Here, I'm replicating its effect on the string content.
+
+_content_holder = f"""
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 MAIN_LLM_MODEL_NAME = os.environ.get("MAIN_LLM_MODEL_NAME", "gemini-1.5-pro-latest")
 LITE_LLM_MODEL_NAME = os.environ.get("LITE_LLM_MODEL_NAME", "gemini-1.5-flash-latest")
 GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+"""
+pattern_main = r'MAIN_LLM_MODEL_NAME\s*=\s*os\.environ\.get\s*\(\s*["\']MAIN_LLM_MODEL_NAME["\']\s*,\s*["\'](.*?)["\']\s*\)'
+replacement_main = f'MAIN_LLM_MODEL_NAME = os.environ.get("MAIN_LLM_MODEL_NAME", "{new_main_model}")'
+_content_holder = re.sub(pattern_main, replacement_main, _content_holder)
+
+pattern_lite = r'LITE_LLM_MODEL_NAME\s*=\s*os\.environ\.get\s*\(\s*["\']LITE_LLM_MODEL_NAME["\']\s*,\s*["\'](.*?)["\']\s*\)'
+replacement_lite = f'LITE_LLM_MODEL_NAME = os.environ.get("LITE_LLM_MODEL_NAME", "{new_lite_model}")'
+_content_holder = re.sub(pattern_lite, replacement_lite, _content_holder)
+
+# Extract the relevant lines from the processed _content_holder
+_updated_main_llm_line = ""
+_updated_lite_llm_line = ""
+for line in _content_holder.splitlines():
+    if line.strip().startswith("MAIN_LLM_MODEL_NAME"):
+        _updated_main_llm_line = line.strip()
+    elif line.strip().startswith("LITE_LLM_MODEL_NAME"):
+        _updated_lite_llm_line = line.strip()
+
+# Now use these updated lines in the actual file content
+MAIN_LLM_MODEL_NAME = os.environ.get("MAIN_LLM_MODEL_NAME", new_main_model)
+LITE_LLM_MODEL_NAME = os.environ.get("LITE_LLM_MODEL_NAME", new_lite_model)
+GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
 
 def call_gemini(model_name: str, prompt_text: str, api_key: str = GEMINI_API_KEY, task_type: str = "generateContent") -> str | None:
     """Calls the specified Gemini model with the given prompt."""
@@ -58,7 +96,10 @@ def call_gemini(model_name: str, prompt_text: str, api_key: str = GEMINI_API_KEY
 if __name__ == '__main__':
     print("Running manual tests for gemini_client.py...")
     print(f"GEMINI_API_KEY set: {'Yes' if GEMINI_API_KEY else 'No (API calls will fail)'}")
-    print(f"Main LLM: {MAIN_LLM_MODEL_NAME}, Lite LLM: {LITE_LLM_MODEL_NAME}")
+    # The following lines will now reflect the new defaults if not overridden by env vars
+    print(f"Main LLM (default if not set by env): {new_main_model}, Actual used: {MAIN_LLM_MODEL_NAME}")
+    print(f"Lite LLM (default if not set by env): {new_lite_model}, Actual used: {LITE_LLM_MODEL_NAME}")
+
 
     if GEMINI_API_KEY:
         print("\n--- Test: Main LLM ---")
