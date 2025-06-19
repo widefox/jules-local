@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env.*
+env/
+venv/
+ENV/
+VENV/
+
+# Jules Local specific
+jules_workspaces/
+*.DS_Store

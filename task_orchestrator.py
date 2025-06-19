@@ -169,6 +169,17 @@ def run_task(repo_path: str, prompt: str):
     except Exception as e:
         print(f"Task Orchestrator: An unexpected error occurred during task '{task_id}': {e}")
     finally:
+        # 6. Display Diffs
+        if plan_approved and container_id_or_name:  # Only show diff if plan was approved and ran
+            print(f"\nTask Orchestrator: Displaying changes in workspace for task '{task_id}'...")
+            diff_output = tools.git_diff(container_id=container_id_or_name) # Using tools.git_diff
+            if diff_output is not None:
+                print("--- Git Diff ---")
+                print(diff_output)
+                print("--- End Git Diff ---")
+            else:
+                print("Could not retrieve git diff or an error occurred displaying diff.")
+
         print(f"\nTask Orchestrator: Cleaning up for task '{task_id}'...")
         if container_id_or_name:
             print(f"  Stopping and removing container '{container_id_or_name}'...")

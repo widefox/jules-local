@@ -2,7 +2,7 @@ import subprocess
 import os
 import time
 
-DEFAULT_IMAGE = "python:3.9-slim"
+DEFAULT_IMAGE = "python:3.9-buster"
 # Alternative for testing if issues with python:3.9-slim arise, e.g. missing shell tools
 # DEFAULT_IMAGE = "ubuntu:latest"
 

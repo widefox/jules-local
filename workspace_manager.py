@@ -1,140 +1,200 @@
 import os
 import shutil
-import stat # For making files writable if needed during cleanup
+import stat
+import subprocess # For running git commands
 
-# Define a base directory for all workspaces
 BASE_WORKSPACE_DIR = "jules_workspaces"
 
-def setup_workspace(original_repo_path: str, task_id: str) -> str | None:
+def _run_git_command(command_parts: list[str], working_dir: str | None = None) -> tuple[bool, str, str]:
+    """Helper to run Git commands."""
+    try:
+        process = subprocess.run(["git"] + command_parts, capture_output=True, text=True, check=False, cwd=working_dir)
+        if process.returncode == 0:
+            return True, process.stdout.strip(), process.stderr.strip()
+        else:
+            return False, process.stdout.strip(), process.stderr.strip()
+    except FileNotFoundError: # git command not found
+        return False, "", "Git command not found. Please ensure Git is installed and in your PATH."
+    except Exception as e:
+        return False, "", f"An unexpected error occurred while running git command: {e}"
+
+def setup_workspace(original_repo_path: str, task_id: str, branch_name: str = None) -> str | None:
     """
-    Sets up a new workspace for a task.
+    Sets up a new workspace for a task by cloning a Git repository.
 
     Args:
-        original_repo_path: Path to the user's original local Git repository.
+        original_repo_path: Path to the user's original local Git repository (can be a local path or a URL).
         task_id: A unique identifier for the task.
+        branch_name: Optional specific branch to clone. If None, clones default branch.
 
     Returns:
-        The absolute path to the 'code' subdirectory within the task's workspace,
+        The absolute path to the cloned repository within the task's workspace,
         or None if setup fails.
     """
-    if not os.path.isdir(original_repo_path):
-        print(f"Error: Original repository path '{original_repo_path}' not found or not a directory.")
-        return None
-
     task_workspace_dir = os.path.join(BASE_WORKSPACE_DIR, f"task_{task_id}")
-    task_code_dir = os.path.join(task_workspace_dir, "code")
+    # Cloned repo will be directly inside task_workspace_dir, not a 'code' subdirectory like before for simplicity with git.
+    # Or, we can clone into a 'code' subdir: os.path.join(task_workspace_dir, "code")
+    # Let's keep the 'code' subdir for consistency with potential non-git workspaces if ever needed.
+    cloned_repo_target_path = os.path.join(task_workspace_dir, "code")
+
+
+    if os.path.exists(task_workspace_dir):
+        print(f"Warning: Task workspace directory '{task_workspace_dir}' already exists. Removing it.")
+        shutil.rmtree(task_workspace_dir, onerror=_on_rm_error)
 
     try:
-        if os.path.exists(task_workspace_dir):
-            print(f"Warning: Task workspace directory '{task_workspace_dir}' already exists. Removing it.")
-            # Attempt to remove it robustly
-            shutil.rmtree(task_workspace_dir, onerror=_on_rm_error)
-
-        os.makedirs(task_code_dir, exist_ok=True) # exist_ok=True handles race conditions if dir was just created
-
-        # Copy the entire content of the original repo to the task_code_dir
-        # shutil.copytree by default does not copy metadata like .git directory content if it's treated as metadata
-        # We need to ensure .git and other hidden files are copied if they exist.
-        # Using ignore=None should copy everything.
-        shutil.copytree(original_repo_path, task_code_dir, dirs_exist_ok=True, ignore=None)
-
-        print(f"Workspace setup complete. Code copied to: {os.path.abspath(task_code_dir)}")
-        return os.path.abspath(task_code_dir)
-
+        os.makedirs(cloned_repo_target_path, exist_ok=True)
     except Exception as e:
-        print(f"Error setting up workspace for task {task_id}: {e}")
-        # Attempt to clean up partially created directory
-        if os.path.exists(task_workspace_dir):
-            try:
-                shutil.rmtree(task_workspace_dir, onerror=_on_rm_error)
-            except Exception as cleanup_e:
-                print(f"Error during cleanup of failed workspace setup: {cleanup_e}")
+        print(f"Error creating workspace directory '{cloned_repo_target_path}': {e}")
         return None
 
+    # Construct git clone command
+    clone_cmd_parts = ["clone"]
+    if branch_name:
+        clone_cmd_parts.extend(["-b", branch_name])
+
+    # original_repo_path can be a URL or a local path. Git handles both.
+    # If it's a local path, git clone might create a copy that shares hardlinks for efficiency.
+    # For true isolation, if original_repo_path is local, one might copy it to a temp location then clone from there,
+    # or use `git clone --no-hardlinks file:///path/to/local/repo`
+    # For now, direct clone is fine.
+    clone_cmd_parts.extend([original_repo_path, cloned_repo_target_path])
+
+    print(f"Cloning repository from '{original_repo_path}' into '{cloned_repo_target_path}'...")
+    success, stdout, stderr = _run_git_command(clone_cmd_parts)
+
+    if not success:
+        print(f"Error cloning repository for task {task_id}:")
+        if stdout: print(f"  Git stdout: {stdout}")
+        if stderr: print(f"  Git stderr: {stderr}")
+        # Attempt to clean up partially created directory
+        if os.path.exists(task_workspace_dir):
+            shutil.rmtree(task_workspace_dir, onerror=_on_rm_error)
+        return None
+
+    print(f"Repository cloned successfully into: {os.path.abspath(cloned_repo_target_path)}")
+
+    # --- Stretch Goal: Create and checkout a new task-specific branch ---
+    new_task_branch = f"jules_task/{task_id}"
+    print(f"Attempting to create and checkout new branch '{new_task_branch}' in '{cloned_repo_target_path}'...")
+
+    # `git checkout -b <new_branch_name>`
+    checkout_b_success, co_b_stdout, co_b_stderr = _run_git_command(
+        ["checkout", "-b", new_task_branch],
+        working_dir=cloned_repo_target_path
+    )
+    if not checkout_b_success:
+        print(f"Warning: Failed to create and checkout new branch '{new_task_branch}'.")
+        if co_b_stdout: print(f"  Git stdout: {co_b_stdout}")
+        if co_b_stderr: print(f"  Git stderr: {co_b_stderr}")
+        print("Proceeding on the cloned branch.")
+        # Not returning None here, as cloning itself was successful.
+    else:
+        print(f"Successfully created and switched to branch '{new_task_branch}'.")
+    # --- End Stretch Goal ---
+
+    return os.path.abspath(cloned_repo_target_path)
+
+
 def _on_rm_error(func, path, exc_info):
-    """
-    Error handler for shutil.rmtree.
-    If the error is due to readonly files, try to make them writable and retry.
-    """
-    # exc_info[1] is the exception object
+    """Error handler for shutil.rmtree to make files writable if PermissionError."""
     if isinstance(exc_info[1], PermissionError):
         try:
-            # Try to make the file writable
             os.chmod(path, stat.S_IWRITE)
-            # Retry the function that failed (e.g., os.remove)
-            func(path)
+            func(path) # Retry the original function (e.g., os.remove)
         except Exception as e:
             print(f"Failed to make {path} writable and remove: {e}")
     else:
-        print(f"Error removing {path}: {exc_info[1]}")
+        print(f"Error removing {path} during rmtree: {exc_info[1]}")
 
 
 def cleanup_workspace(task_id: str) -> None:
-    """
-    Removes the workspace directory for a given task_id.
-
-    Args:
-        task_id: The unique identifier for the task.
-    """
+    """Removes the workspace directory for a given task_id."""
     task_workspace_dir = os.path.join(BASE_WORKSPACE_DIR, f"task_{task_id}")
-
     if os.path.exists(task_workspace_dir):
         try:
+            # Git might create read-only files in .git/objects, so onerror is important
             shutil.rmtree(task_workspace_dir, onerror=_on_rm_error)
             print(f"Workspace for task {task_id} cleaned up from: {task_workspace_dir}")
         except Exception as e:
             print(f"Error cleaning up workspace for task {task_id} at {task_workspace_dir}: {e}")
-            print("You might need to remove it manually.")
     else:
-        print(f"Workspace directory for task {task_id} not found at {task_workspace_dir}. No cleanup needed or already cleaned up.")
+        print(f"Workspace for task {task_id} not found at {task_workspace_dir} (already cleaned or setup failed).")
+
 
 if __name__ == '__main__':
-    # Quick test (manual)
-    print("Running a quick manual test for workspace_manager.py...")
-    TEST_TASK_ID = "test_001"
-    TEST_REPO_PATH = "./temp_test_repo" # Create this directory manually with some files for testing
+    print("Running manual tests for workspace_manager.py (Git-aware)...")
 
-    # Create a dummy repo for testing
-    if os.path.exists(TEST_REPO_PATH):
-        shutil.rmtree(TEST_REPO_PATH, onerror=_on_rm_error)
-    os.makedirs(os.path.join(TEST_REPO_PATH, ".git")) # Simulate .git dir
-    os.makedirs(os.path.join(TEST_REPO_PATH, "subdir"))
-    with open(os.path.join(TEST_REPO_PATH, "file1.txt"), "w") as f:
-        f.write("hello")
-    with open(os.path.join(TEST_REPO_PATH, ".hiddenfile"), "w") as f:
-        f.write("hidden")
-    with open(os.path.join(TEST_REPO_PATH, "subdir", "file2.txt"), "w") as f:
-        f.write("world")
+    # --- Setup for creating a temporary bare repository to clone from ---
+    # This is more robust for testing git clone than relying on an external repo.
+    test_source_repo_path = os.path.abspath("./temp_source_git_repo")
+    test_bare_repo_path = os.path.abspath("./temp_source_git_repo.git") # Path for bare repo
 
-    print(f"Attempting to set up workspace for task '{TEST_TASK_ID}' using repo '{TEST_REPO_PATH}'...")
-    workspace_path = setup_workspace(TEST_REPO_PATH, TEST_TASK_ID)
+    def setup_local_bare_repo():
+        if os.path.exists(test_source_repo_path):
+            shutil.rmtree(test_source_repo_path, onerror=_on_rm_error)
+        if os.path.exists(test_bare_repo_path):
+            shutil.rmtree(test_bare_repo_path, onerror=_on_rm_error)
 
-    if workspace_path:
-        print(f"Workspace successfully created at: {workspace_path}")
-        print("Contents of workspace:")
-        for root, dirs, files in os.walk(workspace_path):
-            for name in files:
-                print(os.path.join(root, name))
-            for name in dirs:
-                print(os.path.join(root, name) + "/")
+        os.makedirs(test_source_repo_path, exist_ok=True)
+        _run_git_command(["init"], working_dir=test_source_repo_path)
+        with open(os.path.join(test_source_repo_path, "README.md"), "w") as f:
+            f.write("Test repo for cloning.")
+        _run_git_command(["add", "README.md"], working_dir=test_source_repo_path)
+        _run_git_command(["commit", "-m", "Initial commit"], working_dir=test_source_repo_path)
 
-        print(f"Listing contents of base workspace dir '{BASE_WORKSPACE_DIR}':")
-        if os.path.exists(BASE_WORKSPACE_DIR):
-            for item in os.listdir(BASE_WORKSPACE_DIR):
-                print(os.path.join(BASE_WORKSPACE_DIR, item))
-        else:
-            print(f"Base directory {BASE_WORKSPACE_DIR} not found.")
+        # Create another branch for testing branch cloning
+        _run_git_command(["branch", "feature-branch"], working_dir=test_source_repo_path)
+        _run_git_command(["checkout", "feature-branch"], working_dir=test_source_repo_path)
+        with open(os.path.join(test_source_repo_path, "feature.txt"), "w") as f:
+            f.write("This is on the feature branch.")
+        _run_git_command(["add", "feature.txt"], working_dir=test_source_repo_path)
+        _run_git_command(["commit", "-m", "Add feature file"], working_dir=test_source_repo_path)
+        _run_git_command(["checkout", "main"], working_dir=test_source_repo_path) # Switch back to main/master
 
+        # Create a bare clone to act as the "remote"
+        _run_git_command(["clone", "--bare", test_source_repo_path, test_bare_repo_path])
+        print(f"Temporary bare repository created at {test_bare_repo_path}")
 
-        print(f"Attempting to clean up workspace for task '{TEST_TASK_ID}'...")
-        cleanup_workspace(TEST_TASK_ID)
+    def cleanup_local_bare_repo():
+        if os.path.exists(test_source_repo_path):
+            shutil.rmtree(test_source_repo_path, onerror=_on_rm_error)
+        if os.path.exists(test_bare_repo_path):
+            shutil.rmtree(test_bare_repo_path, onerror=_on_rm_error)
+        print("Cleaned up temporary bare repository and source.")
 
-        print(f"Checking if task workspace dir '{os.path.join(BASE_WORKSPACE_DIR, f"task_{TEST_TASK_ID}")}' exists after cleanup: {os.path.exists(os.path.join(BASE_WORKSPACE_DIR, f"task_{TEST_TASK_ID}"))}")
-
+    # Check if git is available before running tests that depend on it
+    git_available, _, _ = _run_git_command(["--version"])
+    if not git_available:
+        print("Git command not found. Skipping Git-dependent tests in workspace_manager.")
     else:
-        print("Workspace setup failed.")
+        setup_local_bare_repo()
 
-    # Clean up the dummy repo
-    if os.path.exists(TEST_REPO_PATH):
-        shutil.rmtree(TEST_REPO_PATH, onerror=_on_rm_error)
-    print("Manual test finished.")
+        TEST_TASK_ID_GIT = "git_test_001"
+        print(f"\n--- Test 1: Cloning default branch from '{test_bare_repo_path}' ---")
+        ws_path_default = setup_workspace(test_bare_repo_path, TEST_TASK_ID_GIT)
+        assert ws_path_default is not None, "Workspace setup (default branch) failed"
+        assert os.path.exists(os.path.join(ws_path_default, "README.md")), "README.md not found in default branch clone"
+        assert not os.path.exists(os.path.join(ws_path_default, "feature.txt")), "feature.txt should not be in default branch clone"
+        # Check if new branch was created
+        _, current_branch_stdout, _ = _run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], working_dir=ws_path_default)
+        assert f"jules_task/{TEST_TASK_ID_GIT}" == current_branch_stdout, f"Not on task branch. Current: {current_branch_stdout}"
+
+        print(f"Default branch clone successful. Current branch in workspace: {current_branch_stdout}")
+        cleanup_workspace(TEST_TASK_ID_GIT)
+
+        TEST_TASK_ID_GIT_BRANCH = "git_test_002"
+        print(f"\n--- Test 2: Cloning specific branch 'feature-branch' from '{test_bare_repo_path}' ---")
+        ws_path_feature = setup_workspace(test_bare_repo_path, TEST_TASK_ID_GIT_BRANCH, branch_name="feature-branch")
+        assert ws_path_feature is not None, "Workspace setup (feature branch) failed"
+        assert os.path.exists(os.path.join(ws_path_feature, "README.md")), "README.md not found in feature branch clone" # Assuming feature branch also has README.md
+        assert os.path.exists(os.path.join(ws_path_feature, "feature.txt")), "feature.txt not found in feature branch clone"
+        _, current_branch_feature_stdout, _ = _run_git_command(["rev-parse", "--abbrev-ref", "HEAD"], working_dir=ws_path_feature)
+        assert f"jules_task/{TEST_TASK_ID_GIT_BRANCH}" == current_branch_feature_stdout, f"Not on task branch for feature clone. Current: {current_branch_feature_stdout}"
+
+        print(f"Feature branch clone successful. Current branch in workspace: {current_branch_feature_stdout}")
+        cleanup_workspace(TEST_TASK_ID_GIT_BRANCH)
+
+        cleanup_local_bare_repo()
+
+    print("\nManual tests for workspace_manager.py (Git-aware) finished.")

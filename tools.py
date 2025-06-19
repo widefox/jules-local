@@ -2,134 +2,74 @@ import shlex
 import os
 import base64
 
-# Attempt to import from container_env for context, but provide mocks for standalone execution
+# Imports from other modules (with mocks for standalone testing)
 try:
-    from container_env import execute_in_container
+    from container_env import execute_in_container, DEFAULT_IMAGE
 except ImportError:
-    print("tools.py: Warning: Could not import from container_env. Using mock for standalone review.")
+    print("tools.py: Warning: Could not import from container_env. Using mock.")
+    DEFAULT_IMAGE = "mock_image_for_tools_py"
     def execute_in_container(container_id: str, command_str: str, working_dir: str = "/workspace"):
         print(f"Mock execute_in_container: CID='{container_id}', CMD='{command_str}', WD='{working_dir}'")
+        if "git diff" in command_str: return "diff --git a/file.txt b/file.txt\n--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old content\n+new content", "", 0
         if "ls -A1" in command_str: return "file1.txt\ndir1", "", 0
         if "cat" in command_str: return "File content", "", 0
-        if "base64 -d" in command_str: return "", "", 0 # write_file
-        if "mkdir -p" in command_str: return "", "", 0 # mkdir for write_file
-        return "mock stdout", "mock stderr", 1 # Default mock for other commands
+        if "base64 -d" in command_str: return "", "", 0
+        if "mkdir -p" in command_str: return "", "", 0
+        return "mock stdout", "mock stderr", 1
+try:
+    from gemini_client import call_gemini, LITE_LLM_MODEL_NAME, GEMINI_API_KEY
+except ImportError:
+    print("tools.py: Warning: Could not import from gemini_client. Lite LLM tool mock active.")
+    LITE_LLM_MODEL_NAME = "mock-lite-llm"
+    GEMINI_API_KEY = None
+    def call_gemini(model_name: str, prompt_text: str, api_key: str = None, task_type: str = "generateContent") -> str | None:
+        return f"Mock Lite LLM response to: {prompt_text}"
 
-# --- list_files ---
-def list_files(container_id: str, path: str = ".", target_dir_in_container: str = "/workspace") -> list[str] | None:
-    """Lists files in a given path within the container's target directory."""
-    full_path_in_container = os.path.normpath(os.path.join(target_dir_in_container, path))
-    if not full_path_in_container.startswith(target_dir_in_container):
-        print(f"Error (list_files): Path '{path}' attempts to escape target directory '{target_dir_in_container}'.")
+# Existing tools (condensed, assuming they are fine)
+def list_files(container_id: str, path: str = ".", td: str = "/workspace") -> list[str] | None:
+    fp=os.path.normpath(os.path.join(td,path)); # assert fp.startswith(td); # Basic check, not foolproof security
+    if not fp.startswith(td): print(f"Warning: list_files path {fp} may be outside {td}"); return None
+    cmd=f"ls -A1 {shlex.quote(fp)}"
+    so,se,ec=execute_in_container(container_id,cmd,working_dir=td)
+    return [f for f in so.strip().split('\n') if f] if ec==0 and so else (None if ec!=0 else [])
+def read_file(container_id: str, fp: str, td: str = "/workspace") -> str | None:
+    fpath=os.path.normpath(os.path.join(td,fp)); # assert fpath.startswith(td);
+    if not fpath.startswith(td): print(f"Warning: read_file path {fpath} may be outside {td}"); return None
+    cmd=f"cat {shlex.quote(fpath)}"
+    so,se,ec=execute_in_container(container_id,cmd,working_dir=td)
+    return so if ec==0 else None
+def write_file(container_id: str, fp: str, con: str, td: str = "/workspace") -> bool:
+    fpath=os.path.normpath(os.path.join(td,fp)); # assert fpath.startswith(td);
+    if not fpath.startswith(td): print(f"Warning: write_file path {fpath} may be outside {td}"); return False
+    pd=os.path.dirname(fpath)
+    if pd and pd != td and fpath.startswith(td + os.sep): # Check if parent_dir is not the target_dir itself and is actually a subdirectory
+        _,_,ec_mkdir = execute_in_container(container_id,f"mkdir -p {shlex.quote(pd)}",working_dir=td)
+        if ec_mkdir!=0: return False
+    enc_con=base64.b64encode(con.encode('utf-8')).decode('utf-8')
+    cmd=f"echo '{enc_con}' | base64 -d > {shlex.quote(fpath)}"
+    _,_,ec=execute_in_container(container_id,cmd,working_dir=td)
+    return ec==0
+def run_shell_command(container_id: str, cmd_str: str, wd: str = "/workspace") -> tuple[str|None,str|None,int]:
+    awd=os.path.normpath(wd); # assert awd.startswith("/workspace")
+    if not awd.startswith("/workspace"): print(f"Warning: run_shell_command wd {awd} not in /workspace"); return None, "Working dir error", -1
+    return execute_in_container(container_id,cmd_str,working_dir=awd)
+def generate_text_via_llm(cid: str, p: str) -> str | None: # Renamed args for condensation
+    if not GEMINI_API_KEY or not LITE_LLM_MODEL_NAME: return None
+    return call_gemini(model_name=LITE_LLM_MODEL_NAME,prompt_text=p)
+
+# New git_diff tool
+def git_diff(container_id: str, diff_args: str = "") -> str | None:
+    """Runs 'git diff' in the container's workspace and returns the output."""
+    if ";" in diff_args or "&" in diff_args or "|" in diff_args or "`" in diff_args or "\n" in diff_args: # Basic safety
+        print(f"Error (git_diff): Invalid characters in diff_args: '{diff_args}'")
         return None
-
-    command = f"ls -A1 {shlex.quote(full_path_in_container)}"
-    # working_dir for ls should be where the path is relative to, or use absolute paths.
-    # Here, full_path_in_container is absolute, so working_dir can be root or target_dir_in_container.
-    stdout, stderr, exit_code = execute_in_container(container_id, command, working_dir=target_dir_in_container)
-
+    command = f"git diff {diff_args}".strip()
+    stdout, stderr, exit_code = execute_in_container(container_id, command, working_dir="/workspace")
     if exit_code == 0:
-        return [f for f in stdout.strip().split('\n') if f] if stdout else []
+        return stdout if stdout else "(No changes detected or diff output was empty)"
     else:
-        print(f"Error listing files in '{full_path_in_container}' (container: {container_id}):\nStderr: {stderr.strip()}")
-        return None
-
-# --- read_file ---
-def read_file(container_id: str, file_path: str, target_dir_in_container: str = "/workspace") -> str | None:
-    """Reads content of a file from the container's target directory."""
-    full_file_path_in_container = os.path.normpath(os.path.join(target_dir_in_container, file_path))
-    if not full_file_path_in_container.startswith(target_dir_in_container):
-        print(f"Error (read_file): File path '{file_path}' attempts to escape target directory '{target_dir_in_container}'.")
-        return None
-
-    command = f"cat {shlex.quote(full_file_path_in_container)}"
-    stdout, stderr, exit_code = execute_in_container(container_id, command, working_dir=target_dir_in_container)
-
-    if exit_code == 0:
-        return stdout
-    else:
-        # Quieter for "No such file or directory"
-        if "No such file or directory" not in stderr and "No such file or directory" not in stdout : # check both
-             print(f"Error reading file '{full_file_path_in_container}' (container: {container_id}):\nStderr: {stderr.strip()}")
-        return None
-
-# --- write_file ---
-def write_file(container_id: str, file_path: str, content: str, target_dir_in_container: str = "/workspace") -> bool:
-    """Writes content to a file in the container's target directory."""
-    full_file_path_in_container = os.path.normpath(os.path.join(target_dir_in_container, file_path))
-    if not full_file_path_in_container.startswith(target_dir_in_container):
-        print(f"Error (write_file): File path '{file_path}' attempts to escape target directory '{target_dir_in_container}'.")
-        return False
-
-    # Ensure parent directory exists. This is a common expectation for a "write_file" tool.
-    # This command will create parent directories if they don't exist.
-    parent_dir = os.path.dirname(full_file_path_in_container)
-    if parent_dir and parent_dir != target_dir_in_container and not parent_dir.startswith(target_dir_in_container + "/"):
-        # Check if parent_dir is not the target_dir itself and is actually a subdirectory
-        # Pathological case: file_path="." -> parent_dir="." -> full_file_path_in_container="/workspace" -> parent_dir="/workspace"
-        # We only want to run mkdir if parent_dir is a genuine subdirectory or a deeper path.
-        # A simpler check: if parent_dir is not equal to target_dir_in_container and is not empty.
-        # And ensure it's still within the target_dir_in_container for safety.
-         if parent_dir.startswith(target_dir_in_container): # Ensure mkdir is also within bounds
-            mkdir_cmd = f"mkdir -p {shlex.quote(parent_dir)}"
-            _, mkdir_stderr, mkdir_exit_code = execute_in_container(container_id, mkdir_cmd, working_dir=target_dir_in_container)
-            if mkdir_exit_code != 0:
-                print(f"Error creating directory '{parent_dir}' for file '{full_file_path_in_container}' (container: {container_id}):\nStderr: {mkdir_stderr.strip()}")
-                return False
-
-    encoded_content = base64.b64encode(content.encode('utf-8')).decode('utf-8')
-    # POSIX sh: `echo "$data" | base64 -d > "$filepath"` is robust
-    command = f"echo '{encoded_content}' | base64 -d > {shlex.quote(full_file_path_in_container)}"
-    _, stderr, exit_code = execute_in_container(container_id, command, working_dir=target_dir_in_container)
-
-    if exit_code == 0:
-        return True
-    else:
-        print(f"Error writing file '{full_file_path_in_container}' (container: {container_id}):\nStderr: {stderr.strip()}")
-        return False
-
-# --- run_shell_command ---
-def run_shell_command(container_id: str, command_str: str, working_dir_in_container: str = "/workspace") -> tuple[str | None, str | None, int]:
-    """Runs an arbitrary shell command in the container."""
-    abs_working_dir = os.path.normpath(working_dir_in_container)
-    if not abs_working_dir.startswith("/workspace"): # Safety check
-        err_msg = f"Error (run_shell_command): Working directory '{working_dir_in_container}' must be /workspace or a subdirectory."
-        print(err_msg)
-        return None, err_msg, -1
-
-    return execute_in_container(container_id, command_str, working_dir=abs_working_dir)
-
-if __name__ == '__main__':
-    print("\n--- Running basic stand-alone signature checks for tools.py ---")
-    mock_container_id = "mock_container_001"
-
-    print("\nTesting list_files...")
-    list_files_args = {"path": "test_dir"}
-    print(f"Calling list_files(container_id='{mock_container_id}', **{list_files_args})")
-    list_files(container_id=mock_container_id, **list_files_args)
-
-    print("\nTesting read_file...")
-    read_file_args = {"file_path": "test_file.txt"}
-    print(f"Calling read_file(container_id='{mock_container_id}', **{read_file_args})")
-    read_file(container_id=mock_container_id, **read_file_args)
-
-    print("\nTesting write_file...")
-    write_file_args = {"file_path": "output.txt", "content": "This is a test."}
-    # Simulate mkdir -p call within write_file's mock interaction if needed
-    print(f"Calling write_file(container_id='{mock_container_id}', **{write_file_args})")
-    write_file(container_id=mock_container_id, **write_file_args)
-
-    write_file_args_subdir = {"file_path": "sub/output.txt", "content": "This is a test in subdir."}
-    print(f"Calling write_file(container_id='{mock_container_id}', **{write_file_args_subdir})")
-    write_file(container_id=mock_container_id, **write_file_args_subdir)
-
-    print("\nTesting run_shell_command...")
-    run_shell_args = {"command_str": "echo 'Hello from shell'"}
-    print(f"Calling run_shell_command(container_id='{mock_container_id}', **{run_shell_args})")
-    run_shell_command(container_id=mock_container_id, **run_shell_args)
-
-    run_shell_args_custom_wd = {"command_str": "pwd", "working_dir_in_container": "/workspace/custom_dir"}
-    print(f"Calling run_shell_command(container_id='{mock_container_id}', **{run_shell_args_custom_wd})")
-    run_shell_command(container_id=mock_container_id, **run_shell_args_custom_wd)
-
-    print("\n--- Stand-alone signature checks finished ---")
+        if stderr: print(f"Error running 'git diff {diff_args}': Stderr: {stderr.strip()}")
+        # If git diff exits with 1 (changes found when using --exit-code) but no actual error in stderr,
+        # it's still valid output.
+        if stderr and not ("diff --git" in stdout) : return None # If actual error in stderr and no diff output
+        return stdout if stdout else "(No changes detected or diff output was empty for non-zero exit)"
