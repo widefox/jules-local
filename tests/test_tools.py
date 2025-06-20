@@ -199,5 +199,73 @@ class TestTools(unittest.TestCase):
             self.assertIsNone(result)
             mock_call_gemini_in_tools_module.assert_not_called()
 
+
+    @mock.patch('tools.execute_in_container')
+    def test_get_file_tree_success_default_path(self, mock_exec):
+        # Mock find . -name .git -prune -o -print (from /workspace)
+        mock_exec.return_value = ("./file1.txt\n./subdir\n./subdir/file2.txt\n./.hiddenfile", "", 0)
+        result = tools.get_file_tree(self.mock_container_id) # Defaults to start_path="."
+        expected_output = "file1.txt\nsubdir\nsubdir/file2.txt\n.hiddenfile" # Leading "./" stripped
+        self.assertEqual(result, expected_output)
+        mock_exec.assert_called_once_with(
+            self.mock_container_id,
+            "find . -name .git -prune -o -print", # Corrected: shlex.quote('.') is '.'
+            working_dir="/workspace"
+        )
+
+    @mock.patch('tools.execute_in_container')
+    def test_get_file_tree_success_specific_subdir(self, mock_exec):
+        # Mock find src -name .git -prune -o -print (from /workspace)
+        # Output from find will be like "src/file.py", "src/another/data.txt"
+        mock_exec.return_value = ("src/main.py\nsrc/utils\nsrc/utils/helper.py", "", 0)
+        result = tools.get_file_tree(self.mock_container_id, start_path="src")
+        # Output should be as is, since paths are already relative to /workspace and start with 'src/'
+        expected_output = "src/main.py\nsrc/utils\nsrc/utils/helper.py"
+        self.assertEqual(result, expected_output)
+        mock_exec.assert_called_once_with(
+            self.mock_container_id,
+            "find src -name .git -prune -o -print", # Corrected: shlex.quote('src') is 'src'
+            working_dir="/workspace"
+        )
+
+    @mock.patch('tools.execute_in_container')
+    def test_get_file_tree_empty_directory(self, mock_exec):
+        # Test case 1: find returns only the directory itself (and it's not ".")
+        mock_exec.return_value = ("empty_subdir", "", 0)
+        result = tools.get_file_tree(self.mock_container_id, start_path="empty_subdir")
+        self.assertEqual(result, "empty_subdir")
+
+        # Test case 2: find returns nothing (truly empty or error handled by find itself as empty)
+        mock_exec.reset_mock() # Reset for next call
+        mock_exec.return_value = ("", "", 0)
+        result = tools.get_file_tree(self.mock_container_id, start_path="truly_empty")
+        self.assertEqual(result, "")
+
+        # Test case 3: find returns just "." when start_path is "." and dir is empty
+        mock_exec.reset_mock()
+        mock_exec.return_value = (".", "", 0)
+        result = tools.get_file_tree(self.mock_container_id, start_path=".")
+        self.assertEqual(result, "") # Should be empty after processing
+
+
+    @mock.patch('tools.execute_in_container')
+    def test_get_file_tree_find_fails(self, mock_exec):
+        mock_exec.return_value = ("", "find: some error", 1)
+        result = tools.get_file_tree(self.mock_container_id, start_path="any_path")
+        self.assertIsNone(result)
+
+    def test_get_file_tree_path_escape_absolute(self):
+        result = tools.get_file_tree(self.mock_container_id, start_path="/etc") # Absolute path
+        self.assertIsNone(result) # Should be caught by safety check
+
+    def test_get_file_tree_path_escape_relative(self):
+        result = tools.get_file_tree(self.mock_container_id, start_path="../outside_workspace")
+        self.assertIsNone(result) # Should be caught by safety check
+
+    def test_get_file_tree_on_git_dir(self):
+        # Test trying to list .git explicitly
+        result = tools.get_file_tree(self.mock_container_id, start_path=".git")
+        self.assertEqual(result, "") # Should return empty as per current logic
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

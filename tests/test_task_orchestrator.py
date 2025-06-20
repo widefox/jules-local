@@ -26,8 +26,9 @@ DUMMY_UUID_OBJ = mock.Mock()
 DUMMY_UUID_OBJ.hex = DUMMY_TASK_ID # Keep this for compatibility if uuid.uuid4().hex was used
 # However, task_orchestrator.py uses str(uuid.uuid4()), so we need to mock uuid.uuid4() to return an object
 # whose str() representation is DUMMY_TASK_ID.
-mock_uuid_object = mock.Mock()
-mock_uuid_object.__str__ = mock.Mock(return_value=DUMMY_TASK_ID)
+# For task_id = str(uuid.uuid4().hex)
+mock_uuid_call_return_object = mock.Mock()
+mock_uuid_call_return_object.hex = DUMMY_TASK_ID
 
 
 class TestTaskOrchestrator(unittest.TestCase):
@@ -50,6 +51,7 @@ class TestTaskOrchestrator(unittest.TestCase):
         self.mock_tool_run_shell = mock.patch('task_orchestrator.tools.run_shell_command').start()
         self.mock_tool_git_diff = mock.patch('task_orchestrator.tools.git_diff').start()
         self.mock_tool_generate_text = mock.patch('task_orchestrator.tools.generate_text_via_llm').start()
+        self.mock_tool_get_file_tree = mock.patch('task_orchestrator.tools.get_file_tree').start() # Added
 
         self.mock_input = mock.patch('builtins.input').start()
 
@@ -58,6 +60,7 @@ class TestTaskOrchestrator(unittest.TestCase):
         self.mock_start_container.return_value = "mock_container_123"
         self.mock_run_setup_script.return_value = True
         self.mock_tool_git_diff.return_value = "mocked git diff output"
+        self.mock_tool_get_file_tree.return_value = 'mocked_file_tree_output' # Added
 
         # Ensure CONTAINER_RUNTIME is True for tests to run past the initial check
         self.mock_container_runtime_check = mock.patch('task_orchestrator.CONTAINER_RUNTIME', True).start()
@@ -66,8 +69,8 @@ class TestTaskOrchestrator(unittest.TestCase):
     def tearDown(self):
         mock.patch.stopall() # Stops all patches started with start()
 
-    @mock.patch('task_orchestrator.uuid.uuid4', return_value=mock_uuid_object)
-    def test_full_successful_run_plan_approved(self, mock_uuid_call):
+    @mock.patch('task_orchestrator.uuid.uuid4', return_value=mock_uuid_call_return_object)
+    def test_full_successful_run_plan_approved(self, mock_uuid_call_obj): # Updated mock name
         # Arrange
         test_plan = [
             {"tool": "request_user_approval", "args": {"message": "Approve?"}},
@@ -86,7 +89,13 @@ class TestTaskOrchestrator(unittest.TestCase):
         self.mock_setup_workspace.assert_called_once_with(original_repo_path="mock_repo_path", task_id=DUMMY_TASK_ID)
         self.mock_start_container.assert_called_once_with(task_id=DUMMY_TASK_ID, workspace_code_path="/mock/workspace/code")
         self.mock_run_setup_script.assert_called_once_with(container_id_or_name="mock_container_123")
-        self.mock_generate_plan.assert_called_once()
+
+        self.mock_tool_get_file_tree.assert_called_once_with(container_id='mock_container_123', start_path='.') # Added
+        self.mock_generate_plan.assert_called_once_with( # Updated
+            "mock_prompt",
+            task_orchestrator.ORCHESTRATOR_AVAILABLE_TOOLS_SPECS,
+            file_tree_context='mocked_file_tree_output'
+        )
         self.mock_input.assert_called_once_with("\nApprove plan? (yes/no): ")
 
         self.mock_tool_list_files.assert_called_once_with(container_id="mock_container_123", path=".")
@@ -109,7 +118,7 @@ class TestTaskOrchestrator(unittest.TestCase):
         task_orchestrator.run_task("mock_repo_path", "mock_prompt")
 
         self.mock_tool_list_files.assert_not_called()
-        self.mock_tool_git_diff.assert_not_called()
+        self.mock_tool_git_diff.assert_called_once() # Should be called if container ran
         self.mock_stop_container.assert_called_once()
         self.mock_cleanup_workspace.assert_called_once()
 
@@ -156,7 +165,7 @@ class TestTaskOrchestrator(unittest.TestCase):
 
         self.mock_input.assert_not_called()
         self.mock_tool_list_files.assert_not_called()
-        self.mock_tool_git_diff.assert_not_called()
+        self.mock_tool_git_diff.assert_called_once() # Should be called if container ran
         self.mock_stop_container.assert_called_once()
         self.mock_cleanup_workspace.assert_called_once()
 

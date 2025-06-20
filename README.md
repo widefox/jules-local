@@ -96,7 +96,7 @@ Jules Local uses an LLM-driven workflow for planning and executing tasks:
 ### LLM-Driven Planning
 *   **Intelligent Plan Generation**: A configured "Main LLM" (e.g., Gemini Pro) interprets your natural language prompts and generates a multi-step plan.
 *   **Tool Awareness**: The LLM is provided with specifications for available tools (e.g., `list_files`, `read_file`, `write_file`, `run_shell_command`, `git_diff`, `generate_text_via_llm`) and decides how to use them.
-
+*   **File Tree Context**: To aid in planning, the LLM is provided with a view of the project's file and directory structure.
 ### Plan Approval
 Before execution, the LLM-generated plan is displayed for your approval (`yes/no`). Example:
 ```
@@ -113,7 +113,7 @@ The LLM planner can use tools like:
 *   `run_shell_command`: For arbitrary shell commands in the workspace.
 *   `generate_text_via_llm`: Calls a "Lite LLM" for focused text/code generation.
 *   `git_diff`: Shows changes in the workspace.
-
+*   `get_file_tree [path]`: Lists all files and directories recursively from the given path (or workspace root by default). The planner uses this output as context.
 ### End-of-Task Diff Display
 After an approved plan executes, Jules Local automatically displays a `git diff` of all changes made to the workspace.
 
