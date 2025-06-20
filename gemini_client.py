@@ -73,12 +73,15 @@ def call_gemini(model_name: str, prompt_text: str, api_key: str = GEMINI_API_KEY
 
         if "candidates" in response_json and response_json["candidates"]:
             candidate = response_json["candidates"][0]
-            if "content" in candidate and "parts" in candidate["content"] and candidate["content"]["parts"]:
+            # Prioritize checking finishReason if it's not STOP
+            if "finishReason" in candidate and candidate["finishReason"] != "STOP":
+                print(f"Warning: Gemini API call finished with reason: {candidate['finishReason']}. Candidate: {candidate}")
+                # The test 'test_call_gemini_finish_reason_not_stop' expects this specific string.
+                # If partial content were to be included, the test would need adjustment.
+                return f"[[API Call Finished: {candidate['finishReason']} - Check logs]]"
+            elif "content" in candidate and "parts" in candidate["content"] and candidate["content"]["parts"]:
                 text_response = candidate["content"]["parts"][0].get("text", "")
                 return text_response
-            elif "finishReason" in candidate and candidate["finishReason"] != "STOP":
-                print(f"Warning: Gemini API call finished with reason: {candidate['finishReason']}. Candidate: {candidate}")
-                return f"[[API Call Finished: {candidate['finishReason']} - Check logs]]"
 
         print(f"Warning: Could not extract text from Gemini response. JSON: {response_json}")
         return None

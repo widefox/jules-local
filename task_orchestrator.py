@@ -12,12 +12,11 @@ from container_env import (
     execute_in_container # Needed for message_user if it's to be container-interactive
 )
 # Import the new planning module and the tools module
-from planning_module import generate_plan, AVAILABLE_TOOLS as PLANNER_AVAILABLE_TOOLS
+from planning_module import generate_plan, DEFAULT_AVAILABLE_TOOLS_SPECS as PLANNER_DEFAULT_TOOLS_SPECS
 import tools # Import the whole module to use getattr
 
-# Define the tools available for execution by the orchestrator
-# This should align with what tools.py actually provides and what planning_module expects
-ORCHESTRATOR_AVAILABLE_TOOLS = PLANNER_AVAILABLE_TOOLS
+# The available tools specs will be passed directly to the planner.
+# ORCHESTRATOR_AVAILABLE_TOOLS_SPECS = PLANNER_DEFAULT_TOOLS_SPECS # This line becomes redundant if used directly
 
 def run_task(repo_path: str, prompt: str):
     """
@@ -65,7 +64,8 @@ def run_task(repo_path: str, prompt: str):
 
         # 4. Generate Plan
         print(f"\nTask Orchestrator: Generating plan for prompt: \"{prompt}\"")
-        plan = generate_plan(prompt, ORCHESTRATOR_AVAILABLE_TOOLS)
+        # Pass the tool specifications to the planner
+        plan = generate_plan(prompt, PLANNER_DEFAULT_TOOLS_SPECS)
         if not plan:
             print("Task Orchestrator: No plan generated. Terminating task.")
             return

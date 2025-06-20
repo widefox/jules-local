@@ -27,22 +27,22 @@ except ImportError:
 
 # Existing tools (condensed, assuming they are fine)
 def list_files(container_id: str, path: str = ".", td: str = "/workspace") -> list[str] | None:
-    fp=os.path.normpath(os.path.join(td,path)); # assert fp.startswith(td); # Basic check, not foolproof security
-    if not fp.startswith(td): print(f"Warning: list_files path {fp} may be outside {td}"); return None
+    fp=os.path.normpath(os.path.join(td,path));
+    if not fp.startswith(td): print(f"Error (list_files): Path '{path}' attempts to escape target directory '{td}'."); return None # Corrected print
     cmd=f"ls -A1 {shlex.quote(fp)}"
     so,se,ec=execute_in_container(container_id,cmd,working_dir=td)
     return [f for f in so.strip().split('\n') if f] if ec==0 and so else (None if ec!=0 else [])
 def read_file(container_id: str, fp: str, td: str = "/workspace") -> str | None:
-    fpath=os.path.normpath(os.path.join(td,fp)); # assert fpath.startswith(td);
-    if not fpath.startswith(td): print(f"Warning: read_file path {fpath} may be outside {td}"); return None
+    fpath=os.path.normpath(os.path.join(td,fp));
+    if not fpath.startswith(td): print(f"Error (read_file): File path '{fp}' attempts to escape target directory '{td}'."); return None # Corrected print
     cmd=f"cat {shlex.quote(fpath)}"
     so,se,ec=execute_in_container(container_id,cmd,working_dir=td)
     return so if ec==0 else None
 def write_file(container_id: str, fp: str, con: str, td: str = "/workspace") -> bool:
-    fpath=os.path.normpath(os.path.join(td,fp)); # assert fpath.startswith(td);
-    if not fpath.startswith(td): print(f"Warning: write_file path {fpath} may be outside {td}"); return False
+    fpath=os.path.normpath(os.path.join(td,fp));
+    if not fpath.startswith(td): print(f"Error (write_file): File path '{fp}' attempts to escape target directory '{td}'."); return False # Corrected print
     pd=os.path.dirname(fpath)
-    if pd and pd != td and fpath.startswith(td + os.sep): # Check if parent_dir is not the target_dir itself and is actually a subdirectory
+    if pd and pd != td and fpath.startswith(td + os.sep):
         _,_,ec_mkdir = execute_in_container(container_id,f"mkdir -p {shlex.quote(pd)}",working_dir=td)
         if ec_mkdir!=0: return False
     enc_con=base64.b64encode(con.encode('utf-8')).decode('utf-8')
@@ -50,17 +50,20 @@ def write_file(container_id: str, fp: str, con: str, td: str = "/workspace") -> 
     _,_,ec=execute_in_container(container_id,cmd,working_dir=td)
     return ec==0
 def run_shell_command(container_id: str, cmd_str: str, wd: str = "/workspace") -> tuple[str|None,str|None,int]:
-    awd=os.path.normpath(wd); # assert awd.startswith("/workspace")
-    if not awd.startswith("/workspace"): print(f"Warning: run_shell_command wd {awd} not in /workspace"); return None, "Working dir error", -1
+    awd=os.path.normpath(wd);
+    if not awd.startswith("/workspace"):
+        err_msg = f"Error (run_shell_command): Working directory '{wd}' must be /workspace or a subdirectory."
+        print(err_msg) # For logging
+        return None, err_msg, -1 # Return the descriptive error message
     return execute_in_container(container_id,cmd_str,working_dir=awd)
-def generate_text_via_llm(cid: str, p: str) -> str | None: # Renamed args for condensation
+def generate_text_via_llm(cid: str, p: str) -> str | None:
     if not GEMINI_API_KEY or not LITE_LLM_MODEL_NAME: return None
     return call_gemini(model_name=LITE_LLM_MODEL_NAME,prompt_text=p)
 
 # New git_diff tool
 def git_diff(container_id: str, diff_args: str = "") -> str | None:
     """Runs 'git diff' in the container's workspace and returns the output."""
-    if ";" in diff_args or "&" in diff_args or "|" in diff_args or "`" in diff_args or "\n" in diff_args: # Basic safety
+    if ";" in diff_args or "&" in diff_args or "|" in diff_args or "`" in diff_args or "\n" in diff_args:
         print(f"Error (git_diff): Invalid characters in diff_args: '{diff_args}'")
         return None
     command = f"git diff {diff_args}".strip()
@@ -69,7 +72,5 @@ def git_diff(container_id: str, diff_args: str = "") -> str | None:
         return stdout if stdout else "(No changes detected or diff output was empty)"
     else:
         if stderr: print(f"Error running 'git diff {diff_args}': Stderr: {stderr.strip()}")
-        # If git diff exits with 1 (changes found when using --exit-code) but no actual error in stderr,
-        # it's still valid output.
-        if stderr and not ("diff --git" in stdout) : return None # If actual error in stderr and no diff output
+        if stderr and not ("diff --git" in stdout) : return None
         return stdout if stdout else "(No changes detected or diff output was empty for non-zero exit)"
